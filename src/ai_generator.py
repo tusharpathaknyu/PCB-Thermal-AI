@@ -129,7 +129,17 @@ class AIPCBGenerator:
     
     def __init__(self, api_key: Optional[str] = None):
         """Initialize with Gemini API key."""
+        # Try multiple sources for API key
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        
+        # Also try Streamlit secrets if available
+        if not self.api_key:
+            try:
+                import streamlit as st
+                self.api_key = st.secrets.get("GEMINI_API_KEY")
+            except:
+                pass
+        
         self.client = None
         
         if self.api_key:

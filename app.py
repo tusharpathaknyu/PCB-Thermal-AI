@@ -161,8 +161,26 @@ st.markdown("""
 def load_model():
     """Load the trained model (cached)."""
     checkpoint_path = Path("checkpoints/best.pth")
+    
     if checkpoint_path.exists():
         return ThermalPredictor.load(str(checkpoint_path))
+    
+    # Fallback: try to download from HF if not in Docker
+    try:
+        from huggingface_hub import hf_hub_download
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with st.spinner("📥 Downloading model..."):
+            downloaded_path = hf_hub_download(
+                repo_id="tusharpathaknyu/pcb-thermal-ai",
+                filename="best.pth",
+                local_dir="checkpoints",
+                local_dir_use_symlinks=False
+            )
+            return ThermalPredictor.load(downloaded_path)
+    except:
+        pass
+    
     return None
 
 

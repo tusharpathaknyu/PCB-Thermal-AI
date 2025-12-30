@@ -30,6 +30,13 @@ python-multipart>=0.0.6
 # Web UI
 streamlit>=1.28.0
 
+# AI Generation
+google-genai>=1.0.0
+python-dotenv>=1.0.0
+
+# Model hosting (optional fallback)
+# huggingface_hub>=0.20.0
+
 # ONNX (production deployment)
 onnx>=1.14.0
 onnxruntime>=1.16.0

@@ -1,0 +1,48 @@
+# Ignore unnecessary files in Docker build
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+.venv/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Data (will download or generate)
+data/raw/
+data/processed/
+
+# Keep only best checkpoint (exclude intermediate ones)
+checkpoints/epoch_*.pth
+checkpoints/final.pth
+
+# Models (keep ONNX for production)
+# models/
+
+# Logs
+logs/
+*.log
+
+# Docs
+docs/
+emails/
+*.md
+!README.md
+
+# Tests
+tests/
