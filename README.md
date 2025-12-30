@@ -8,11 +8,20 @@ An ML-based tool for rapid PCB temperature distribution prediction from layout f
 |--------|-------|
 | **Mean Absolute Error** | 6.0°C |
 | **Max Error** | ~17°C |
-| **Inference Time** | <50ms |
+| **Inference Time** | <50ms (PyTorch) / 27ms (ONNX) |
 | **Training Dataset** | 2,000 samples |
 | **Model Parameters** | 4.3M (U-Net) |
 
 🚀 **Get thermal feedback in SECONDS instead of HOURS!**
+
+## 🌟 Features
+
+- **🖥️ Interactive Web Demo** - Streamlit app with real-time visualization
+- **🎲 Data Augmentation** - Rotation, flip, noise injection, power scaling
+- **📊 Uncertainty Quantification** - MC Dropout for confidence estimation
+- **💡 Design Recommendations** - AI-powered thermal optimization suggestions
+- **⚡ ONNX Export** - Cross-platform deployment, 27ms inference
+- **🔌 REST API** - FastAPI endpoint for integration
 
 ## 🎯 Project Goal
 
@@ -114,10 +123,14 @@ source venv/bin/activate  # or venv\Scripts\activate on Windows
 # Install dependencies
 pip install -r requirements.txt
 
-# Run demo (visualize ML vs FEA comparison)
+# 🖥️ Launch interactive web demo (recommended!)
+streamlit run app.py
+# Visit http://localhost:8501
+
+# Run CLI demo (visualize ML vs FEA comparison)
 python scripts/demo.py --save-figure
 
-# Start API server
+# Start REST API server
 uvicorn src.api.server:app --reload
 # Visit http://localhost:8000/docs for interactive API
 ```
@@ -132,6 +145,37 @@ python scripts/generate_dataset.py --num-samples 2000 --output data/synthetic
 python scripts/train.py --data data/synthetic --epochs 50 --batch-size 16
 
 # Model checkpoint saved to: checkpoints/best.pth
+
+# Export to ONNX for production deployment
+python scripts/export_onnx.py --checkpoint checkpoints/best.pth --output models/pcb_thermal.onnx
+```
+
+## 📊 Advanced Features
+
+### Uncertainty Quantification
+```python
+from src.inference.uncertainty import UncertaintyPredictor
+
+predictor = UncertaintyPredictor('checkpoints/best.pth', n_samples=20)
+result = predictor.predict_with_uncertainty(features)
+print(f"Temperature: {result['mean_temp']:.1f}°C ± {result['temp_uncertainty']:.1f}°C")
+print(f"High uncertainty regions: {result['high_uncertainty_fraction']:.1%}")
+```
+
+### Data Augmentation
+```python
+from src.training.augmentation import ThermalAugmentation
+
+# Use preset or custom config
+augment = ThermalAugmentation.from_preset('default')
+features_aug, temp_aug = augment(features, temperature)
+```
+
+### ONNX Inference (27ms)
+```python
+import onnxruntime as ort
+session = ort.InferenceSession('models/pcb_thermal.onnx')
+output = session.run(None, {'pcb_features': features})
 ```
 
 ## 🌐 API Usage
@@ -160,10 +204,14 @@ curl -X POST http://localhost:8000/predict \
 - [x] FastAPI deployment ✅
 - [x] Inference module ✅
 - [x] Demo script ✅
+- [x] Interactive Streamlit web demo ✅
+- [x] Data augmentation pipeline ✅
+- [x] Uncertainty quantification (MC Dropout) ✅
+- [x] Design recommendations ✅
+- [x] ONNX export ✅
 - [ ] FEM integration (Thermca/Elmer for higher fidelity)
 - [ ] Validation with real thermal camera data
 - [ ] Multi-layer PCB support
-- [ ] Web UI for interactive predictions
 - [ ] Public release & paper
 
 ## 👤 Author

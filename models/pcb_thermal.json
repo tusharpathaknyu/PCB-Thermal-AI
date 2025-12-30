@@ -1,0 +1,27 @@
+{
+  "model_name": "unet_small",
+  "input_shape": [
+    1,
+    4,
+    128,
+    128
+  ],
+  "output_shape": [
+    1,
+    1,
+    128,
+    128
+  ],
+  "opset_version": 14,
+  "num_parameters": 4318689,
+  "normalization": {
+    "output_mean": 38.7336540222168,
+    "output_std": 18.72418785095215
+  },
+  "input_channels": [
+    "copper",
+    "vias",
+    "components",
+    "power"
+  ]
+}

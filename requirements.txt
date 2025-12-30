@@ -17,6 +17,7 @@ Pillow>=10.0.0
 # Visualization
 matplotlib>=3.7.0
 seaborn>=0.12.0
+plotly>=5.18.0
 
 # PCB/Gerber parsing
 pcb-tools>=0.1.6
@@ -25,6 +26,13 @@ pcb-tools>=0.1.6
 fastapi>=0.100.0
 uvicorn>=0.23.0
 python-multipart>=0.0.6
+
+# Web UI
+streamlit>=1.28.0
+
+# ONNX (production deployment)
+onnx>=1.14.0
+onnxruntime>=1.16.0
 
 # Utilities
 tqdm>=4.65.0
