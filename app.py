@@ -30,6 +30,13 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.data_generation import PCBGenerator, HeatEquationSolver
 from src.inference import ThermalPredictor
 
+# Try to import AI generator (optional)
+try:
+    from src.ai_generator import AIPCBGenerator
+    AI_GENERATOR_AVAILABLE = True
+except ImportError:
+    AI_GENERATOR_AVAILABLE = False
+
 # Page config
 st.set_page_config(
     page_title="PCB Thermal AI",
@@ -591,16 +598,128 @@ def main():
     # ========== SIDEBAR ==========
     st.sidebar.markdown("## 📥 Input Source")
     
+    input_options = ["🎲 Generate Test PCB", "📤 Upload Your PCB"]
+    if AI_GENERATOR_AVAILABLE:
+        input_options.insert(0, "🤖 AI: Describe Your PCB")
+    
     input_method = st.sidebar.radio(
         "Select input method:",
-        ["🎲 Generate Test PCB", "📤 Upload Your PCB"],
-        help="Generate a synthetic PCB for testing, or upload your own design"
+        input_options,
+        help="Use AI to describe your PCB, generate a test, or upload your design"
     )
     
     st.sidebar.markdown("---")
     
     # Input handling
-    if input_method == "📤 Upload Your PCB":
+    if input_method == "🤖 AI: Describe Your PCB" and AI_GENERATOR_AVAILABLE:
+        st.sidebar.markdown("### 🤖 Describe Your PCB")
+        st.sidebar.markdown("*Use natural language to describe your board*")
+        
+        # Example descriptions
+        example_descs = [
+            "Arduino board with ATmega328P, 7805 voltage regulator, 6 LEDs, and USB connector",
+            "ESP32 IoT sensor with WiFi, 3 temperature sensors, LDO regulator",
+            "Motor driver with 4 MOSFETs, H-bridge controller, and large heatsink area",
+            "Raspberry Pi HAT with power supply, GPIO expander, and I2C sensors"
+        ]
+        
+        # Quick template buttons
+        st.sidebar.markdown("**Quick templates:**")
+        template_cols = st.sidebar.columns(2)
+        
+        selected_template = None
+        with template_cols[0]:
+            if st.button("🔧 Arduino", use_container_width=True, key="tmpl_arduino"):
+                selected_template = example_descs[0]
+            if st.button("📡 IoT Sensor", use_container_width=True, key="tmpl_iot"):
+                selected_template = example_descs[1]
+        with template_cols[1]:
+            if st.button("⚡ Motor Driver", use_container_width=True, key="tmpl_motor"):
+                selected_template = example_descs[2]
+            if st.button("🍓 Pi HAT", use_container_width=True, key="tmpl_pi"):
+                selected_template = example_descs[3]
+        
+        # Handle template selection
+        if selected_template:
+            st.session_state.ai_description = selected_template
+        
+        # Main text input
+        description = st.sidebar.text_area(
+            "📝 PCB Description",
+            value=st.session_state.get('ai_description', ''),
+            height=120,
+            placeholder="Example: Arduino board with ATmega328P microcontroller, 7805 voltage regulator, 6 red LEDs, USB connector, and 16MHz crystal",
+            help="Describe your PCB in plain English. Include component names, quantities, and types."
+        )
+        
+        # Advanced options
+        with st.sidebar.expander("⚙️ Advanced Options"):
+            board_size = st.slider("Board Size (mm)", 30, 150, 80)
+            has_ground_plane = st.checkbox("Ground Plane", value=True)
+            layers = st.selectbox("Layers", [2, 4], index=0)
+        
+        # Generate button
+        generate_ai = st.sidebar.button(
+            "🚀 Generate from Description", 
+            use_container_width=True, 
+            type="primary",
+            disabled=len(description.strip()) < 10
+        )
+        
+        if generate_ai and description.strip():
+            with st.spinner("🤖 AI analyzing your description..."):
+                ai_gen = AIPCBGenerator()
+                spec = ai_gen.parse_description(description)
+                
+                # Store spec for display
+                st.session_state.ai_spec = spec
+                
+                # Generate actual layout (returns a layout object)
+                layout = ai_gen.generate_layout(spec, grid_size=128)
+                
+                st.session_state.layout = layout
+                st.session_state.input_type = 'ai_generated'
+                st.session_state.ai_components = spec.components
+                st.session_state.ai_total_power = spec.total_power_w
+                
+            st.sidebar.success(f"✅ Generated: {spec.name}")
+            
+        elif 'ai_spec' in st.session_state:
+            # Show parsed spec
+            spec = st.session_state.ai_spec
+            st.sidebar.markdown("---")
+            st.sidebar.markdown(f"**📋 Parsed Board:** {spec.name}")
+            st.sidebar.markdown(f"**🔌 Type:** {spec.board_type}")
+            st.sidebar.markdown(f"**⚡ Power:** {spec.total_power_w:.2f}W")
+            
+            # Component list
+            with st.sidebar.expander(f"🧩 Components ({len(spec.components)})"):
+                for comp in spec.components:
+                    st.markdown(f"• {comp.count}x **{comp.name}** - {comp.power_mw:.0f}mW")
+        
+        if 'layout' not in st.session_state or st.session_state.get('input_type') not in ['ai_generated']:
+            # Show help text
+            st.markdown("### 🤖 AI-Powered PCB Generation")
+            st.markdown("""
+            **Describe your PCB in natural language and our AI will:**
+            1. 🔍 Parse your description to identify components
+            2. ⚡ Estimate realistic power consumption
+            3. 📐 Generate an intelligent component layout
+            4. 🌡️ Run thermal analysis instantly
+            
+            **Example descriptions:**
+            - *"Arduino Uno clone with ATmega328P, 7805 regulator, 6 LEDs, USB-B connector"*
+            - *"ESP32 weather station with BME280 sensor, OLED display, LiPo charger"*
+            - *"12V motor driver with 4 IRF540 MOSFETs and bootstrap capacitors"*
+            
+            **Tips for best results:**
+            - Include specific component names (ATmega328P, ESP32, LM7805, etc.)
+            - Mention quantities ("6 LEDs", "4 MOSFETs")
+            - Describe high-power components for accurate thermal analysis
+            """)
+            return
+    
+    elif input_method == "📤 Upload Your PCB":
         st.sidebar.markdown("### 📤 Upload PCB Image")
         
         uploaded_file = st.sidebar.file_uploader(
@@ -668,7 +787,7 @@ def main():
             st.session_state.regenerate = True
         
         # Generate
-        if 'layout' not in st.session_state or st.session_state.get('regenerate', True) or st.session_state.get('input_type') == 'uploaded':
+        if 'layout' not in st.session_state or st.session_state.get('regenerate', True) or st.session_state.get('input_type') in ['uploaded', 'ai_generated']:
             with st.spinner("Generating PCB..."):
                 layout = generator.generate(
                     complexity=complexity.lower(),
@@ -749,6 +868,19 @@ def main():
                 height=450
             )
             st.plotly_chart(fig, use_container_width=True)
+        elif st.session_state.get('input_type') == 'ai_generated' and 'ai_spec' in st.session_state:
+            pcb_img = create_realistic_pcb_image(layout, components)
+            spec = st.session_state.ai_spec
+            fig = go.Figure()
+            fig.add_trace(go.Image(z=pcb_img))
+            fig.update_layout(
+                title=dict(text=f"🤖 AI Generated: {spec.name} ({spec.board_type})", x=0.5, font=dict(size=14)),
+                xaxis=dict(showticklabels=False, showgrid=False),
+                yaxis=dict(showticklabels=False, showgrid=False),
+                margin=dict(l=10, r=10, t=40, b=10),
+                height=450
+            )
+            st.plotly_chart(fig, use_container_width=True)
         else:
             pcb_img = create_realistic_pcb_image(layout, components)
             fig = go.Figure()
@@ -818,6 +950,48 @@ def main():
             fig = create_component_power_chart(components)
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
+    
+    # ========== AI ANALYSIS (if AI generated) ==========
+    if st.session_state.get('input_type') == 'ai_generated' and 'ai_spec' in st.session_state:
+        st.markdown("---")
+        st.markdown("#### 🤖 AI-Parsed Component Breakdown")
+        
+        spec = st.session_state.ai_spec
+        ai_cols = st.columns([2, 1, 1])
+        
+        with ai_cols[0]:
+            # Component table
+            comp_data = []
+            for comp in spec.components:
+                comp_data.append({
+                    "Component": comp.name,
+                    "Type": comp.type.name.replace("_", " ").title(),
+                    "Qty": comp.count,
+                    "Power (mW)": f"{comp.power_mw:.0f}",
+                    "Package": comp.package or "—"
+                })
+            
+            if comp_data:
+                st.dataframe(comp_data, use_container_width=True, hide_index=True)
+        
+        with ai_cols[1]:
+            st.markdown("**Board Specs**")
+            st.markdown(f"- **Name:** {spec.name}")
+            st.markdown(f"- **Type:** {spec.board_type.replace('_', ' ').title()}")
+            st.markdown(f"- **Complexity:** {spec.estimated_complexity}")
+            st.markdown(f"- **Layers:** {spec.layers}")
+            st.markdown(f"- **Size:** {spec.size_mm[0]}×{spec.size_mm[1]} mm")
+        
+        with ai_cols[2]:
+            st.markdown("**Power Summary**")
+            total_from_components = sum(c.power_mw for c in spec.components)
+            st.metric("Total Power", f"{total_from_components/1000:.2f} W")
+            st.metric("Components", len(spec.components))
+            
+            if spec.thermal_notes:
+                st.markdown("**⚠️ AI Notes:**")
+                for note in spec.thermal_notes[:3]:
+                    st.markdown(f"- {note}")
     
     # ========== RECOMMENDATIONS ==========
     st.markdown("---")

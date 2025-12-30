@@ -63,3 +63,4 @@ tensorboard/
 # Secrets
 .env
 secrets.yaml
+.env
