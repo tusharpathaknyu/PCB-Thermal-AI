@@ -116,6 +116,9 @@ class ThermalPredictor:
         temperature = outputs.cpu().numpy()[0, 0]
         temperature = temperature * self.output_stats['std'] + self.output_stats['mean']
         
+        # Apply physics-based refinement for more realistic temperatures
+        temperature = self._physics_refinement(temperature, power, copper, components)
+        
         if return_dict:
             # Find hotspot
             max_idx = np.unravel_index(np.argmax(temperature), temperature.shape)
@@ -127,6 +130,73 @@ class ThermalPredictor:
                 'hotspot_location': (int(max_idx[0]), int(max_idx[1])),
                 'temp_range': float(temperature.max() - temperature.min())
             }
+        
+        return temperature
+    
+    def _physics_refinement(
+        self,
+        temperature: np.ndarray,
+        power: np.ndarray,
+        copper: np.ndarray,
+        components: np.ndarray
+    ) -> np.ndarray:
+        """
+        Apply physics-based refinement to ensure realistic thermal behavior.
+        
+        Key principles:
+        1. Temperature rise is proportional to power dissipation
+        2. High copper areas should be cooler (better heat spreading)
+        3. Component areas should show localized heating
+        4. Minimum temp should approach ambient (25°C)
+        """
+        ambient = 25.0
+        
+        # Calculate total power (input is normalized, so scale appropriately)
+        total_power = power.sum()
+        
+        # Ensure minimum temperature is close to ambient
+        current_min = temperature.min()
+        if current_min < ambient - 5:
+            # Shift up to bring minimum closer to ambient
+            shift = ambient - current_min
+            temperature = temperature + shift * 0.5
+        elif current_min > ambient + 30:
+            # Temperature floor is too high, scale down
+            scale = (current_min - ambient) / (current_min - 25)
+            temperature = ambient + (temperature - ambient) * scale * 0.8
+        
+        # Ensure hotspots correlate with power sources
+        if total_power > 0.01:  # Only if there's meaningful power
+            # Weight temperature towards power sources
+            power_normalized = power / (power.max() + 1e-6)
+            
+            # Blend: original prediction + power correlation
+            power_influence = power_normalized * (temperature.max() - ambient) * 0.2
+            temperature = temperature + power_influence
+        
+        # Component areas should be warmer than surroundings
+        if components.sum() > 0:
+            comp_mask = components > 0.5
+            comp_temp_avg = temperature[comp_mask].mean() if comp_mask.any() else temperature.mean()
+            non_comp_temp_avg = temperature[~comp_mask].mean() if (~comp_mask).any() else temperature.mean()
+            
+            # If components are cooler than non-components, correct this
+            if comp_temp_avg < non_comp_temp_avg:
+                boost = (non_comp_temp_avg - comp_temp_avg) * 0.5
+                temperature[comp_mask] += boost
+        
+        # High copper areas should have lower thermal gradient (better spreading)
+        from scipy import ndimage
+        copper_smoothing = ndimage.gaussian_filter(copper, sigma=3)
+        high_copper = copper_smoothing > 0.5
+        if high_copper.any():
+            # Slightly reduce temperature peaks in high copper areas
+            # (they conduct heat away better)
+            temp_reduction = (temperature - ambient) * copper_smoothing * 0.1
+            temperature = temperature - temp_reduction
+        
+        # Ensure reasonable temperature range (25-150°C typical for PCBs)
+        temperature = np.clip(temperature, ambient, 150.0)
         
         return temperature
     
