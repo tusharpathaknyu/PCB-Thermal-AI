@@ -452,16 +452,16 @@ Return ONLY valid JSON, no explanation."""
         
         # Place components intelligently
         placed_components = []
-        margin = 8
+        margin = 6  # Reduced margin for tighter packing
         
-        # Sort by power (place high-power components with more spacing)
+        # Sort by power (place high-power components first for thermal spacing)
         sorted_comps = sorted(
             [(c, i) for i, c in enumerate(spec.components) for _ in range(c.count)],
             key=lambda x: -x[0].power_mw
         )
         
-        # Grid-based placement
-        positions = self._calculate_positions(len(sorted_comps), grid_size, margin)
+        # Use smart placement algorithm
+        positions = self._calculate_positions_smart(sorted_comps, grid_size, margin)
         
         for idx, (comp, _) in enumerate(sorted_comps):
             if idx >= len(positions):
@@ -540,12 +540,120 @@ Return ONLY valid JSON, no explanation."""
         
         return layout
     
-    def _calculate_positions(self, num_components: int, grid_size: int, margin: int) -> List[Tuple[int, int]]:
-        """Calculate grid positions for components."""
+    def _calculate_positions_smart(self, components: List[Tuple], grid_size: int, margin: int) -> List[Tuple[int, int]]:
+        """
+        Smart component placement using bin-packing algorithm.
+        Places components efficiently to minimize wasted space.
+        Components is list of (component, original_index) tuples sorted by power.
+        """
         positions = []
         usable = grid_size - 2 * margin
         
-        # Determine grid layout
+        # Calculate total component area to determine optimal packing
+        total_area = 0
+        comp_sizes = []
+        for comp, _ in components:
+            w, h = comp.estimate_size()
+            # Add minimum spacing between components
+            spacing = 4 if comp.power_mw < 100 else 6  # More space for hot components
+            comp_sizes.append((w + spacing, h + spacing, w, h))
+            total_area += (w + spacing) * (h + spacing)
+        
+        # Calculate fill ratio - if components fill <50% of board, pack tighter
+        board_area = usable * usable
+        fill_ratio = total_area / board_area if board_area > 0 else 1
+        
+        # Use shelf-packing algorithm for efficient placement
+        # Track shelves: each shelf has a y position and remaining width
+        shelves = []  # [(y_start, current_x, shelf_height)]
+        
+        for idx, (padded_w, padded_h, actual_w, actual_h) in enumerate(comp_sizes):
+            comp, _ = components[idx]
+            placed = False
+            
+            # Adjust placement based on fill ratio
+            if fill_ratio < 0.3:
+                # Very sparse - use center-focused placement
+                center_x = grid_size // 2
+                center_y = grid_size // 2
+                
+                # Spiral outward from center
+                spiral_positions = self._generate_spiral_positions(
+                    center_x, center_y, grid_size, margin, len(positions)
+                )
+                if idx < len(spiral_positions):
+                    x, y = spiral_positions[idx]
+                    x = min(max(x - actual_w // 2, margin), grid_size - actual_w - margin)
+                    y = min(max(y - actual_h // 2, margin), grid_size - actual_h - margin)
+                    positions.append((x, y))
+                    placed = True
+            
+            if not placed:
+                # Try to fit on existing shelf
+                for shelf_idx, (shelf_y, shelf_x, shelf_h) in enumerate(shelves):
+                    if shelf_x + padded_w <= usable + margin and padded_h <= shelf_h:
+                        # Fits on this shelf
+                        x = shelf_x
+                        y = shelf_y
+                        shelves[shelf_idx] = (shelf_y, shelf_x + padded_w, shelf_h)
+                        positions.append((x, y))
+                        placed = True
+                        break
+                
+                if not placed:
+                    # Create new shelf
+                    if shelves:
+                        new_y = shelves[-1][0] + shelves[-1][2]
+                    else:
+                        new_y = margin
+                    
+                    if new_y + padded_h <= usable + margin:
+                        shelves.append((new_y, margin + padded_w, padded_h))
+                        positions.append((margin, new_y))
+                        placed = True
+            
+            if not placed:
+                # Fallback: find any open spot
+                x = margin + (idx * 15) % (usable - actual_w)
+                y = margin + (idx * 20) % (usable - actual_h)
+                positions.append((x, y))
+        
+        return positions
+    
+    def _generate_spiral_positions(self, cx: int, cy: int, grid_size: int, margin: int, offset: int) -> List[Tuple[int, int]]:
+        """Generate positions spiraling outward from center."""
+        positions = [(cx, cy)]
+        x, y = cx, cy
+        dx, dy = 1, 0
+        steps_in_direction = 1
+        steps_taken = 0
+        direction_changes = 0
+        
+        for _ in range(200):  # Generate plenty of positions
+            x += dx * 15  # Step size
+            y += dy * 15
+            steps_taken += 1
+            
+            # Keep within bounds
+            bounded_x = min(max(x, margin), grid_size - margin)
+            bounded_y = min(max(y, margin), grid_size - margin)
+            positions.append((bounded_x, bounded_y))
+            
+            if steps_taken >= steps_in_direction:
+                steps_taken = 0
+                direction_changes += 1
+                # Rotate direction 90 degrees
+                dx, dy = -dy, dx
+                if direction_changes % 2 == 0:
+                    steps_in_direction += 1
+        
+        return positions[offset:] if offset < len(positions) else positions
+    
+    def _calculate_positions(self, num_components: int, grid_size: int, margin: int) -> List[Tuple[int, int]]:
+        """Legacy method - kept for compatibility. Use _calculate_positions_smart instead."""
+        positions = []
+        usable = grid_size - 2 * margin
+        
         cols = int(np.ceil(np.sqrt(num_components)))
         rows = int(np.ceil(num_components / cols))
         
@@ -555,14 +663,8 @@ Return ONLY valid JSON, no explanation."""
         for i in range(num_components):
             row = i // cols
             col = i % cols
-            
             x = margin + col * cell_w + cell_w // 4
             y = margin + row * cell_h + cell_h // 4
-            
-            # Add some randomness
-            x += np.random.randint(-5, 6)
-            y += np.random.randint(-5, 6)
-            
             positions.append((x, y))
         
         return positions
