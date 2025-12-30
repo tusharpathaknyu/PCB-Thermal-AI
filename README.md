@@ -92,7 +92,7 @@ Email templates and contact lists for data acquisition:
 
 ```bash
 # Clone repository
-git clone https://github.com/YOUR_USERNAME/PCB-Thermal-AI.git
+git clone https://github.com/tusharpathaknyu/PCB-Thermal-AI.git
 cd PCB-Thermal-AI
 
 # Create virtual environment
@@ -107,6 +107,9 @@ python scripts/generate_dataset.py --quick --visualize
 
 # Generate full dataset (1000 samples)
 python scripts/generate_dataset.py --num-samples 1000 --visualize
+
+# Train the model
+python scripts/train.py --data data/synthetic --epochs 50 --batch-size 16
 ```
 
 ## 📅 Roadmap
@@ -115,8 +118,8 @@ python scripts/generate_dataset.py --num-samples 1000 --visualize
 - [x] Online resources research
 - [x] Outreach email templates
 - [x] Synthetic data generator implementation ✅
-- [ ] U-Net model implementation
-- [ ] Training pipeline
+- [x] U-Net model implementation ✅
+- [x] Training pipeline ✅
 - [ ] FEM integration (Thermca)
 - [ ] Validation with real thermal data
 - [ ] FastAPI deployment
