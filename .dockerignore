@@ -27,9 +27,10 @@ env/
 data/raw/
 data/processed/
 
-# Keep only best checkpoint (exclude intermediate ones)
+# Exclude intermediate checkpoints but KEEP best.pth
 checkpoints/epoch_*.pth
 checkpoints/final.pth
+# NOTE: checkpoints/best.pth is INCLUDED
 
 # Models (keep ONNX for production)
 # models/

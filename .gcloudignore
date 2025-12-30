@@ -1,0 +1,76 @@
+# .gcloudignore - Controls what gcloud builds uploads
+# IMPORTANT: This file OVERRIDES .gitignore completely for gcloud builds
+# Syntax: similar to .gitignore but processed independently
+
+# ============================================
+# EXPLICITLY INCLUDE (do NOT ignore these)
+# ============================================
+# The model checkpoint MUST be included
+# We list what to EXCLUDE, everything else is included
+
+# ============================================
+# EXCLUDE: Python artifacts
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# ============================================
+# EXCLUDE: Virtual environments
+# ============================================
+venv/
+env/
+.env
+.venv/
+
+# ============================================
+# EXCLUDE: Git internals
+# ============================================
+.git/
+.gitignore
+
+# ============================================
+# EXCLUDE: IDE files
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ============================================
+# EXCLUDE: Jupyter
+# ============================================
+.ipynb_checkpoints/
+*.ipynb
+
+# ============================================
+# EXCLUDE: Large data files (not needed)
+# ============================================
+data/raw/
+data/processed/
+
+# ============================================
+# EXCLUDE: Intermediate checkpoints (keep best.pth)
+# ============================================
+checkpoints/epoch_*.pth
+checkpoints/final.pth
+# NOTE: checkpoints/best.pth is NOT excluded - it will be included!
+
+# ============================================
+# EXCLUDE: Logs and temp files
+# ============================================
+logs/
+*.log
+
+# ============================================
+# EXCLUDE: Documentation (not needed in container)
+# ============================================
+docs/
+emails/
+
+# ============================================
+# EXCLUDE: Tests
+# ============================================
+tests/

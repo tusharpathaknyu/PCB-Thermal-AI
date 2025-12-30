@@ -236,37 +236,69 @@ def create_realistic_pcb_image(layout, components: List[Component], size=(512, 5
         x2 = int((comp.x + comp.width) * scale_x)
         y2 = int((comp.y + comp.height) * scale_y)
         
-        # Component body
-        color = tuple(int(comp.color[i:i+2], 16) for i in (1, 3, 5))
-        draw.rectangle([x1, y1, x2, y2], fill=color, outline=(100, 100, 100))
+        # Skip invalid components (negative size)
+        if x2 <= x1 or y2 <= y1:
+            continue
+            
+        comp_w = x2 - x1
+        comp_h = y2 - y1
         
-        # Component markings based on type
+        # Component body
+        color = tuple(int(comp.color[j:j+2], 16) for j in (1, 3, 5))
+        draw.rectangle([x1, y1, x2, y2], fill=color, outline=(80, 80, 80))
+        
+        # Component markings based on type - with size safety checks
         if comp.type == ComponentType.IC:
-            # IC dot (pin 1 marker)
-            draw.ellipse([x1+3, y1+3, x1+8, y1+8], fill=(200, 200, 200))
-            # IC text
-            draw.rectangle([x1+2, y1+10, x2-2, y2-10], fill=(40, 40, 40))
+            # IC dot (pin 1 marker) - only if component is big enough
+            if comp_w >= 12 and comp_h >= 12:
+                draw.ellipse([x1+3, y1+3, x1+8, y1+8], fill=(200, 200, 200))
+                # IC text window - only if there's enough vertical space
+                if comp_h > 24:
+                    draw.rectangle([x1+2, y1+10, x2-2, y2-10], fill=(40, 40, 40))
+            # Draw pin legs
+            pin_spacing = max(4, comp_w // 8)
+            for px in range(x1 + pin_spacing, x2 - 2, pin_spacing):
+                draw.rectangle([px, y1-2, px+2, y1], fill=(192, 192, 192))  # Top pins
+                draw.rectangle([px, y2, px+2, y2+2], fill=(192, 192, 192))  # Bottom pins
         elif comp.type == ComponentType.RESISTOR:
-            # Resistor bands
-            band_w = (x2 - x1) // 6
-            for j, c in enumerate([(150, 50, 50), (100, 100, 100), (200, 150, 50)]):
-                bx = x1 + band_w * (j + 1)
-                draw.rectangle([bx, y1, bx + band_w//2, y2], fill=c)
+            # Resistor bands - only if wide enough
+            if comp_w > 12:
+                band_w = max(2, comp_w // 6)
+                for j, c in enumerate([(150, 50, 50), (100, 100, 100), (200, 150, 50)]):
+                    bx = x1 + band_w * (j + 1)
+                    if bx + band_w//2 < x2:
+                        draw.rectangle([bx, y1, bx + band_w//2, y2], fill=c)
         elif comp.type == ComponentType.CAPACITOR:
             # Capacitor marking
-            draw.line([(x1 + (x2-x1)//3, y1), (x1 + (x2-x1)//3, y2)], fill=(200, 200, 200), width=2)
+            if comp_w > 6:
+                draw.line([(x1 + comp_w//3, y1), (x1 + comp_w//3, y2)], fill=(200, 200, 200), width=2)
         elif comp.type == ComponentType.LED:
             # LED glow effect
             cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-            r = min(x2-x1, y2-y1) // 3
+            r = max(2, min(comp_w, comp_h) // 3)
             draw.ellipse([cx-r, cy-r, cx+r, cy+r], fill=(0, 255, 0))
+        elif comp.type == ComponentType.POWER_IC:
+            # Power IC with heatsink tab
+            if comp_w >= 10 and comp_h >= 10:
+                # Heat spreader tab at top
+                tab_h = min(comp_h // 3, 8)
+                draw.rectangle([x1, y1, x2, y1 + tab_h], fill=(160, 160, 170))
+                # Mounting hole
+                cx, cy = (x1 + x2) // 2, y1 + tab_h // 2
+                draw.ellipse([cx-2, cy-2, cx+2, cy+2], fill=(60, 60, 60))
+        elif comp.type == ComponentType.MOSFET:
+            # MOSFET with gate marking
+            if comp_w >= 8:
+                draw.rectangle([x1+2, y1+2, x1+5, y2-2], fill=(100, 100, 100))  # Gate
         
         # Power indicator (red tint for high power)
-        if comp.power_mw > 500:
-            overlay = Image.new('RGBA', (x2-x1, y2-y1), (255, 0, 0, 50))
-            img.paste(Image.alpha_composite(
-                img.crop([x1, y1, x2, y2]).convert('RGBA'), overlay
-            ).convert('RGB'), (x1, y1))
+        if comp.power_mw > 500 and comp_w > 2 and comp_h > 2:
+            try:
+                overlay = Image.new('RGBA', (comp_w, comp_h), (255, 0, 0, 50))
+                cropped = img.crop([x1, y1, x2, y2]).convert('RGBA')
+                img.paste(Image.alpha_composite(cropped, overlay).convert('RGB'), (x1, y1))
+            except:
+                pass  # Skip overlay on error
     
     return np.array(img)
 
@@ -469,6 +501,61 @@ def generate_smart_recommendations(temp_field, layout, hotspots, components: Lis
         })
     
     return recommendations
+
+
+def extract_ai_components(layout) -> List[Component]:
+    """Extract Component objects from AI-generated layout's placed_components."""
+    components = []
+    
+    if not hasattr(layout, 'placed_components') or not layout.placed_components:
+        # Fallback to generic detection
+        return generate_components_from_layout(layout, layout.power_map.sum() / 1000)
+    
+    # Map AI component types to our ComponentType enum
+    from src.ai_generator import ComponentType as AIComponentType
+    type_mapping = {
+        AIComponentType.MICROCONTROLLER: ComponentType.IC,
+        AIComponentType.CPU: ComponentType.IC,
+        AIComponentType.FPGA: ComponentType.IC,
+        AIComponentType.POWER_IC: ComponentType.POWER_IC,
+        AIComponentType.MOSFET: ComponentType.MOSFET,
+        AIComponentType.TRANSISTOR: ComponentType.MOSFET,
+        AIComponentType.RESISTOR: ComponentType.RESISTOR,
+        AIComponentType.CAPACITOR: ComponentType.CAPACITOR,
+        AIComponentType.INDUCTOR: ComponentType.INDUCTOR,
+        AIComponentType.LED: ComponentType.LED,
+        AIComponentType.CONNECTOR: ComponentType.CONNECTOR,
+        AIComponentType.CRYSTAL: ComponentType.CAPACITOR,
+        AIComponentType.MEMORY: ComponentType.IC,
+        AIComponentType.SENSOR: ComponentType.IC,
+        AIComponentType.WIFI: ComponentType.IC,
+        AIComponentType.BLUETOOTH: ComponentType.IC,
+        AIComponentType.USB: ComponentType.CONNECTOR,
+        AIComponentType.ETHERNET: ComponentType.IC,
+    }
+    
+    for placed in layout.placed_components:
+        ai_comp = placed['component']
+        x, y = placed['position']
+        w, h = placed['size']
+        
+        # Get mapped type
+        comp_type = type_mapping.get(ai_comp.type, ComponentType.IC)
+        
+        # Calculate per-instance power
+        instance_power = ai_comp.power_mw / ai_comp.count
+        
+        components.append(Component(
+            type=comp_type,
+            x=int(x),
+            y=int(y),
+            width=int(w),
+            height=int(h),
+            power_mw=float(instance_power),
+            name=ai_comp.name
+        ))
+    
+    return components
 
 
 def generate_components_from_layout(layout, total_power: float) -> List[Component]:
@@ -887,10 +974,32 @@ def main():
             )
             st.plotly_chart(fig, use_container_width=True)
         elif st.session_state.get('input_type') == 'ai_generated' and 'ai_spec' in st.session_state:
-            pcb_img = create_realistic_pcb_image(layout, components)
+            # For AI-generated boards, extract components from layout.placed_components
+            ai_components = extract_ai_components(layout)
+            pcb_img = create_realistic_pcb_image(layout, ai_components)
             spec = st.session_state.ai_spec
             fig = go.Figure()
             fig.add_trace(go.Image(z=pcb_img))
+            
+            # Add invisible scatter markers for component hover info
+            for comp in ai_components:
+                # Center of component in image coordinates (512x512)
+                cx = (comp.x + comp.width / 2) * 4  # Scale from 128 to 512
+                cy = (comp.y + comp.height / 2) * 4
+                
+                fig.add_trace(go.Scatter(
+                    x=[cx],
+                    y=[cy],
+                    mode='markers',
+                    marker=dict(size=max(comp.width, comp.height) * 3, color='rgba(0,0,0,0)'),
+                    hovertemplate=f"<b>{comp.name}</b><br>" +
+                                  f"Type: {comp.type.value}<br>" +
+                                  f"Power: {comp.power_mw:.0f}mW<br>" +
+                                  f"Position: ({comp.x}, {comp.y})<br>" +
+                                  f"Size: {comp.width}x{comp.height}<extra></extra>",
+                    showlegend=False
+                ))
+            
             fig.update_layout(
                 title=dict(text=f"🤖 AI Generated: {spec.name} ({spec.board_type})", x=0.5, font=dict(size=14)),
                 xaxis=dict(showticklabels=False, showgrid=False),

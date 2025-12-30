@@ -260,93 +260,171 @@ Return ONLY valid JSON, no explanation."""
         components = []
         
         # Keywords ordered by specificity - more specific patterns first
-        # Only one from each group will match
-        keyword_groups = [
-            # Microcontrollers - most specific first
-            [
-                ("atmega328", ComponentType.MICROCONTROLLER, "ATmega328P", 100),
-                ("atmega", ComponentType.MICROCONTROLLER, "ATmega", 100),
-                ("esp32", ComponentType.MICROCONTROLLER, "ESP32", 400),
-                ("esp8266", ComponentType.MICROCONTROLLER, "ESP8266", 300),
-                ("stm32", ComponentType.MICROCONTROLLER, "STM32", 200),
-                ("arduino", ComponentType.MICROCONTROLLER, "Arduino MCU", 150),
-            ],
-            # CPUs
-            [
-                ("raspberry", ComponentType.CPU, "Raspberry Pi", 2500),
-            ],
-            # Voltage regulators - specific part numbers first
-            [
-                ("7805", ComponentType.POWER_IC, "7805 Regulator", 1000),
-                ("78xx", ComponentType.POWER_IC, "78xx Regulator", 1000),
-                ("ldo", ComponentType.POWER_IC, "LDO Regulator", 300),
-                ("voltage regulator", ComponentType.POWER_IC, "Voltage Regulator", 500),
-            ],
-            # Power components
-            [
-                ("motor driver", ComponentType.POWER_IC, "Motor Driver", 1000),
-                ("h-bridge", ComponentType.POWER_IC, "H-Bridge", 800),
-                ("mosfet", ComponentType.MOSFET, "MOSFET", 500),
-            ],
-            # Connectivity
-            [
-                ("wifi", ComponentType.WIFI, "WiFi Module", 400),
-                ("bluetooth", ComponentType.BLUETOOTH, "Bluetooth Module", 150),
-                ("ethernet", ComponentType.ETHERNET, "Ethernet PHY", 300),
-                ("usb", ComponentType.CONNECTOR, "USB Connector", 10),
-            ],
-            # Individual components (these can all match)
-            [("led", ComponentType.LED, "LED", 40)],
-            [("crystal", ComponentType.CRYSTAL, "Crystal", 5)],
-            [("capacitor", ComponentType.CAPACITOR, "Capacitor", 5)],
-            [("resistor", ComponentType.RESISTOR, "Resistor", 10)],
-            [("inductor", ComponentType.INDUCTOR, "Inductor", 50)],
-            [("sensor", ComponentType.SENSOR, "Sensor", 50)],
+        # Some groups are mutually exclusive, others can all match
+        
+        # ===== MUTUALLY EXCLUSIVE GROUPS =====
+        # Microcontrollers - most specific first (only one matches)
+        mcu_found = False
+        for keyword, comp_type, name, power in [
+            ("atmega328", ComponentType.MICROCONTROLLER, "ATmega328P", 100),
+            ("atmega", ComponentType.MICROCONTROLLER, "ATmega", 100),
+            ("esp32", ComponentType.MICROCONTROLLER, "ESP32", 400),
+            ("esp8266", ComponentType.MICROCONTROLLER, "ESP8266", 300),
+            ("stm32", ComponentType.MICROCONTROLLER, "STM32", 200),
+            ("arduino", ComponentType.MICROCONTROLLER, "Arduino MCU", 150),
+        ]:
+            if keyword in desc_lower and not mcu_found:
+                components.append(AIComponent(name=name, type=comp_type, count=1, power_mw=power))
+                mcu_found = True
+                break
+        
+        # CPUs
+        if "raspberry" in desc_lower:
+            components.append(AIComponent("Raspberry Pi", ComponentType.CPU, 1, 2500))
+        
+        # Voltage regulators - specific part numbers first (only one matches)
+        reg_found = False
+        for keyword, name, power in [
+            ("7805", "7805 Regulator", 1000),
+            ("78xx", "78xx Regulator", 1000),
+            ("ldo", "LDO Regulator", 300),
+            ("voltage regulator", "Voltage Regulator", 500),
+            ("regulator", "Voltage Regulator", 400),
+        ]:
+            if keyword in desc_lower and not reg_found:
+                components.append(AIComponent(name=name, type=ComponentType.POWER_IC, count=1, power_mw=power))
+                reg_found = True
+                break
+        
+        # ===== MOTOR DRIVER SPECIFIC =====
+        if "motor driver" in desc_lower or "motor" in desc_lower:
+            # Check for H-bridge
+            if "h-bridge" in desc_lower or "h bridge" in desc_lower:
+                components.append(AIComponent("H-Bridge Controller", ComponentType.POWER_IC, 1, 800))
+            elif "motor driver" in desc_lower:
+                components.append(AIComponent("Motor Driver IC", ComponentType.POWER_IC, 1, 600))
+        
+        # ===== COUNTABLE COMPONENTS (can all match with quantities) =====
+        countable_patterns = [
+            ("mosfet", ComponentType.MOSFET, "Power MOSFET", 500),
+            ("transistor", ComponentType.TRANSISTOR, "Transistor", 100),
+            ("led", ComponentType.LED, "LED", 40),
+            ("capacitor", ComponentType.CAPACITOR, "Capacitor", 5),
+            ("resistor", ComponentType.RESISTOR, "Resistor", 10),
+            ("inductor", ComponentType.INDUCTOR, "Inductor", 50),
+            ("sensor", ComponentType.SENSOR, "Sensor", 50),
+            ("button", ComponentType.CONNECTOR, "Button", 1),
         ]
         
-        # Keywords that can have multiples
-        countable_keywords = {'led', 'capacitor', 'resistor', 'mosfet', 
-                             'transistor', 'sensor', 'inductor'}
+        for keyword, comp_type, name, power in countable_patterns:
+            if keyword in desc_lower:
+                count = 1
+                # Look for patterns with word boundary: "4 mosfets", "6 LEDs", "3 temperature sensors"
+                # Use word boundary \b to avoid matching "32" from "ESP32"
+                patterns = [
+                    rf'\b(\d{{1,2}})\s*x?\s*{keyword}s?\b',  # "4 mosfets" or "4x mosfet"
+                    rf'\b(\d{{1,2}})\s+\w+\s+{keyword}s?\b',  # "3 temperature sensors"
+                ]
+                for pattern in patterns:
+                    match = re.search(pattern, desc_lower)
+                    if match:
+                        count = min(int(match.group(1)), 20)
+                        break
+                components.append(AIComponent(name=name, type=comp_type, count=count, power_mw=power * count))
         
-        for group in keyword_groups:
-            # Only match first found in each group
-            for keyword, comp_type, name, power in group:
-                if keyword in desc_lower:
-                    count = 1
-                    
-                    if keyword in countable_keywords:
-                        # Look for patterns like "6 leds", "6x led", "6 bright LEDs" 
-                        # Allow adjectives between number and keyword
-                        match = re.search(rf'(\d{{1,2}})\s*x?\s*(?:\w+\s+)?{keyword}s?', desc_lower)
-                        if match:
-                            count = int(match.group(1))
-                            count = min(count, 100)  # Sanity check
-                    
-                    components.append(AIComponent(
-                        name=name,
-                        type=comp_type,
-                        count=count,
-                        power_mw=power * count
-                    ))
-                    break  # Only one from each group
+        # ===== CONNECTIVITY =====
+        if "wifi" in desc_lower:
+            components.append(AIComponent("WiFi Module", ComponentType.WIFI, 1, 400))
+        if "bluetooth" in desc_lower:
+            components.append(AIComponent("Bluetooth Module", ComponentType.BLUETOOTH, 1, 150))
+        if "ethernet" in desc_lower:
+            components.append(AIComponent("Ethernet PHY", ComponentType.ETHERNET, 1, 300))
+        if "usb" in desc_lower:
+            components.append(AIComponent("USB Connector", ComponentType.CONNECTOR, 1, 10))
+        if "can" in desc_lower and "transceiver" in desc_lower:
+            components.append(AIComponent("CAN Transceiver", ComponentType.ETHERNET, 1, 100))
+        if "mcp2515" in desc_lower:
+            components.append(AIComponent("MCP2515 CAN Controller", ComponentType.MICROCONTROLLER, 1, 50))
+        if "tja1050" in desc_lower:
+            components.append(AIComponent("TJA1050 CAN Transceiver", ComponentType.ETHERNET, 1, 80))
+        if "lora" in desc_lower:
+            components.append(AIComponent("LoRa Module", ComponentType.WIFI, 1, 150))
+        if "oled" in desc_lower or "display" in desc_lower:
+            components.append(AIComponent("OLED Display", ComponentType.MEMORY, 1, 30))
+        if "sd card" in desc_lower or "sdcard" in desc_lower:
+            components.append(AIComponent("SD Card Slot", ComponentType.CONNECTOR, 1, 5))
+        if "rtc" in desc_lower or "real time clock" in desc_lower:
+            components.append(AIComponent("RTC Module", ComponentType.CRYSTAL, 1, 5))
+        if "relay" in desc_lower:
+            # Check for count
+            match = re.search(r'\b(\d{1,2})\s*relay', desc_lower)
+            count = int(match.group(1)) if match else 1
+            components.append(AIComponent("Relay", ComponentType.POWER_IC, count, 100 * count))
+        if "esd" in desc_lower or "protection" in desc_lower:
+            components.append(AIComponent("ESD Protection", ComponentType.DIODE, 4, 4))
+        if "isolated" in desc_lower and "power" in desc_lower:
+            components.append(AIComponent("Isolated DC-DC", ComponentType.POWER_IC, 1, 200))
+        if "adc" in desc_lower:
+            components.append(AIComponent("ADC", ComponentType.MICROCONTROLLER, 1, 50))
+        if "dac" in desc_lower:
+            components.append(AIComponent("DAC", ComponentType.MICROCONTROLLER, 1, 50))
+        if "amplifier" in desc_lower or "amp" in desc_lower:
+            components.append(AIComponent("Amplifier IC", ComponentType.POWER_IC, 1, 500))
+        if "gpio" in desc_lower or "expander" in desc_lower:
+            components.append(AIComponent("GPIO Expander", ComponentType.MICROCONTROLLER, 1, 30))
+        if "optocoupler" in desc_lower or "opto" in desc_lower:
+            components.append(AIComponent("Optocoupler", ComponentType.DIODE, 1, 20))
+        if "connector" in desc_lower:
+            match = re.search(r'\b(\d{1,2})\s*(?:\w+\s+)?connector', desc_lower)
+            count = int(match.group(1)) if match else 1
+            components.append(AIComponent("Connector", ComponentType.CONNECTOR, count, 5 * count))
+        if "ddr" in desc_lower or "memory" in desc_lower:
+            components.append(AIComponent("DDR Memory", ComponentType.MEMORY, 1, 500))
+        if "fpga" in desc_lower or "spartan" in desc_lower:
+            components.append(AIComponent("FPGA", ComponentType.FPGA, 1, 1500))
+        if "jtag" in desc_lower:
+            components.append(AIComponent("JTAG Connector", ComponentType.CONNECTOR, 1, 5))
+        if "buck" in desc_lower:
+            components.append(AIComponent("Buck Converter", ComponentType.POWER_IC, 1, 400))
+        if "boost" in desc_lower:
+            components.append(AIComponent("Boost Converter", ComponentType.POWER_IC, 1, 400))
+        if "lipo" in desc_lower or "charger" in desc_lower:
+            components.append(AIComponent("LiPo Charger IC", ComponentType.POWER_IC, 1, 200))
+        if "bme280" in desc_lower:
+            components.append(AIComponent("BME280 Sensor", ComponentType.SENSOR, 1, 10))
+        if "mpu" in desc_lower or "imu" in desc_lower or "accelerometer" in desc_lower:
+            components.append(AIComponent("IMU/Accelerometer", ComponentType.SENSOR, 1, 20))
+        
+        # ===== MISC =====
+        if "crystal" in desc_lower or "oscillator" in desc_lower:
+            components.append(AIComponent("Crystal Oscillator", ComponentType.CRYSTAL, 1, 5))
+        if "heatsink" in desc_lower or "heat sink" in desc_lower:
+            # Add some thermal vias indicator
+            pass
         
         # If nothing detected, add default components
         if not components:
             components = [
                 AIComponent("Generic MCU", ComponentType.MICROCONTROLLER, 1, 200),
                 AIComponent("Power Supply", ComponentType.POWER_IC, 1, 300),
+                AIComponent("Capacitor", ComponentType.CAPACITOR, 4, 20),
+                AIComponent("Resistor", ComponentType.RESISTOR, 6, 60),
             ]
         
         # Determine board type
         board_type = "general"
         if any(x in desc_lower for x in ["arduino", "atmega"]):
             board_type = "arduino"
-        elif "power supply" in desc_lower or "power board" in desc_lower:
+        elif "power supply" in desc_lower or "power board" in desc_lower or "dc-dc" in desc_lower or "charger" in desc_lower:
             board_type = "power_supply"
         elif any(x in desc_lower for x in ["motor", "driver"]):
             board_type = "motor_driver"
-        elif any(x in desc_lower for x in ["wifi", "iot", "esp"]):
+        elif any(x in desc_lower for x in ["wifi", "iot", "esp", "lora"]):
             board_type = "iot"
+        elif any(x in desc_lower for x in ["can", "automotive"]):
+            board_type = "automotive"
+        elif any(x in desc_lower for x in ["fpga", "spartan", "ddr"]):
+            board_type = "fpga"
         
         # power_mw already includes count multiplication
         total_power = sum(c.power_mw for c in components) / 1000
