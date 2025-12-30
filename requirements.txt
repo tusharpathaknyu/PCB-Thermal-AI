@@ -21,9 +21,10 @@ seaborn>=0.12.0
 # PCB/Gerber parsing
 pcb-tools>=0.1.6
 
-# API (for future deployment)
+# API
 fastapi>=0.100.0
 uvicorn>=0.23.0
+python-multipart>=0.0.6
 
 # Utilities
 tqdm>=4.65.0
