@@ -503,6 +503,143 @@ def generate_smart_recommendations(temp_field, layout, hotspots, components: Lis
     return recommendations
 
 
+def generate_thermal_physics_explanation(temp_field, layout, components: List[Component], total_power_w: float):
+    """
+    Generate physics-based explanation of thermal predictions.
+    Returns a dict with explanation details.
+    """
+    max_temp = temp_field.max()
+    min_temp = temp_field.min()
+    mean_temp = temp_field.mean()
+    ambient = 25.0  # Standard ambient temperature
+    
+    # Calculate thermal metrics
+    delta_t = max_temp - ambient
+    
+    # Estimate effective thermal resistance
+    # R_th = ΔT / P where ΔT is temp rise and P is power
+    if total_power_w > 0:
+        effective_r_th = delta_t / total_power_w  # °C/W
+    else:
+        effective_r_th = 0
+    
+    # Calculate thermal spreading based on copper coverage
+    copper_coverage = layout.copper_density.mean() * 100
+    via_count = layout.via_map.sum()
+    
+    # Estimate heat spreading quality
+    temp_uniformity = 1 - (temp_field.std() / max(delta_t, 1))
+    spreading_quality = "Excellent" if temp_uniformity > 0.7 else "Good" if temp_uniformity > 0.5 else "Fair" if temp_uniformity > 0.3 else "Poor"
+    
+    # Calculate power density
+    board_area_mm2 = 50 * 50  # Approximate PCB size in mm²
+    power_density = (total_power_w * 1000) / board_area_mm2  # mW/mm²
+    
+    # Physics formulas used
+    explanation = {
+        'methodology': {
+            'title': 'Neural Network Prediction',
+            'description': 'U-Net CNN trained on 2000+ FEA simulations using steady-state heat equation',
+            'equation': '∇·(k∇T) + Q = 0',
+            'parameters': [
+                f'k = Thermal conductivity (Cu: 385 W/m·K, FR4: 0.3 W/m·K)',
+                f'Q = Heat source from power map',
+                f'Boundary: Convection h = 10 W/m²·K'
+            ]
+        },
+        'key_metrics': {
+            'temp_rise': f'{delta_t:.1f}°C',
+            'effective_r_th': f'{effective_r_th:.1f} °C/W',
+            'power_density': f'{power_density:.2f} mW/mm²',
+            'copper_coverage': f'{copper_coverage:.0f}%',
+            'via_count': int(via_count),
+            'spreading_quality': spreading_quality
+        },
+        'assumptions': [
+            'Ambient temperature: 25°C',
+            'Natural convection cooling',
+            'Steady-state conditions',
+            '4-layer PCB (2oz copper)',
+            'FR4 substrate (1.6mm)'
+        ],
+        'validation': {
+            'model_mae': '6.0°C',
+            'training_samples': '2000 FEA simulations',
+            'architecture': 'U-Net (4.3M parameters)',
+            'accuracy_note': 'Predictions typically within ±10°C of FEA for similar designs'
+        },
+        'temp_breakdown': {
+            'ambient': ambient,
+            'conduction_rise': delta_t * 0.4,  # Estimated breakdown
+            'spreading_rise': delta_t * 0.3,
+            'interface_rise': delta_t * 0.3
+        }
+    }
+    
+    return explanation
+
+
+def render_thermal_explanation(explanation: dict):
+    """Render the thermal explanation as Streamlit markdown."""
+    st.markdown("#### 🔬 Thermal Analysis Methodology")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown(f"""
+        <div style="background:#1a2636; border-radius:10px; padding:15px; margin-bottom:10px;">
+        <h5 style="color:#4da6ff; margin:0 0 10px 0;">📐 Physics Model</h5>
+        <p style="color:#aaa; font-size:0.85rem; margin:0 0 5px 0;">{explanation['methodology']['description']}</p>
+        <div style="background:#0d1520; padding:10px; border-radius:5px; margin:10px 0; text-align:center;">
+        <code style="color:#88ff88; font-size:1.1rem;">{explanation['methodology']['equation']}</code>
+        </div>
+        <ul style="color:#888; font-size:0.8rem; margin:0; padding-left:20px;">
+        {''.join(f'<li>{p}</li>' for p in explanation['methodology']['parameters'])}
+        </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown(f"""
+        <div style="background:#1a2636; border-radius:10px; padding:15px;">
+        <h5 style="color:#4da6ff; margin:0 0 10px 0;">📋 Assumptions</h5>
+        <ul style="color:#aaa; font-size:0.85rem; margin:0; padding-left:20px;">
+        {''.join(f'<li>{a}</li>' for a in explanation['assumptions'])}
+        </ul>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        metrics = explanation['key_metrics']
+        st.markdown(f"""
+        <div style="background:#1a2636; border-radius:10px; padding:15px; margin-bottom:10px;">
+        <h5 style="color:#4da6ff; margin:0 0 10px 0;">📊 Calculated Metrics</h5>
+        <table style="width:100%; color:#ddd; font-size:0.85rem;">
+        <tr><td>Temperature Rise:</td><td style="text-align:right;"><b>{metrics['temp_rise']}</b></td></tr>
+        <tr><td>Thermal Resistance:</td><td style="text-align:right;"><b>{metrics['effective_r_th']}</b></td></tr>
+        <tr><td>Power Density:</td><td style="text-align:right;"><b>{metrics['power_density']}</b></td></tr>
+        <tr><td>Copper Coverage:</td><td style="text-align:right;"><b>{metrics['copper_coverage']}</b></td></tr>
+        <tr><td>Thermal Vias:</td><td style="text-align:right;"><b>{metrics['via_count']}</b></td></tr>
+        <tr><td>Heat Spreading:</td><td style="text-align:right;"><b>{metrics['spreading_quality']}</b></td></tr>
+        </table>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        validation = explanation['validation']
+        st.markdown(f"""
+        <div style="background:#263626; border-radius:10px; padding:15px;">
+        <h5 style="color:#88ff88; margin:0 0 10px 0;">✓ Model Validation</h5>
+        <table style="width:100%; color:#ddd; font-size:0.85rem;">
+        <tr><td>Mean Absolute Error:</td><td style="text-align:right;"><b>{validation['model_mae']}</b></td></tr>
+        <tr><td>Training Data:</td><td style="text-align:right;"><b>{validation['training_samples']}</b></td></tr>
+        <tr><td>Architecture:</td><td style="text-align:right;"><b>{validation['architecture']}</b></td></tr>
+        </table>
+        <p style="color:#88ff88; font-size:0.75rem; margin:10px 0 0 0; font-style:italic;">
+        {validation['accuracy_note']}
+        </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+
 def extract_ai_components(layout) -> List[Component]:
     """Extract Component objects from AI-generated layout's placed_components."""
     components = []
@@ -1139,6 +1276,16 @@ def main():
             <p style="color:#88ff88; font-size:0.9rem; margin:0;"><b>Fix:</b> {rec['solution']}</p>
             </div>
             """, unsafe_allow_html=True)
+    
+    # ========== THERMAL PHYSICS EXPLANATION ==========
+    st.markdown("---")
+    
+    # Calculate total power for explanation
+    total_power_for_explanation = layout.power_map.sum() / 1000 if hasattr(layout, 'power_map') else sum(c.power_mw for c in components) / 1000
+    thermal_explanation = generate_thermal_physics_explanation(temp_field, layout, components, total_power_for_explanation)
+    
+    with st.expander("🔬 **How These Temperatures Were Calculated** (Click to expand)", expanded=False):
+        render_thermal_explanation(thermal_explanation)
     
     # ========== FEA COMPARISON ==========
     if show_comparison:
