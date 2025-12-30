@@ -1,0 +1,65 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (keep structure but not large files)
+data/synthetic/*.npz
+data/synthetic/*.h5
+data/simulated/*.npz
+data/simulated/*.h5
+data/real/
+
+# But keep these
+!data/synthetic/.gitkeep
+!data/simulated/.gitkeep
+
+# Model checkpoints
+checkpoints/
+*.pth
+*.pt
+
+# Logs
+logs/
+*.log
+tensorboard/
+
+# Secrets
+.env
+secrets.yaml

@@ -1,0 +1,35 @@
+{
+  "temperature": {
+    "min": 20.55217170715332,
+    "max": 1360.125732421875,
+    "mean": 37.766632080078125,
+    "std": 17.342144012451172
+  },
+  "power": {
+    "min": 0.5549505640648199,
+    "max": 8.934223869249116,
+    "mean": 2.5779611280479493
+  },
+  "max_temps": {
+    "min": 37.678408482752175,
+    "max": 1360.1257594567003,
+    "mean": 157.1732689661556
+  },
+  "complexity_distribution": {
+    "simple": 30,
+    "medium": 50,
+    "complex": 20
+  },
+  "input_channels": [
+    "copper_density",
+    "via_map",
+    "component_map",
+    "power_map"
+  ],
+  "num_samples": 100,
+  "splits": {
+    "train": 80,
+    "val": 10,
+    "test": 10
+  }
+}
